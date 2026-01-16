@@ -1,0 +1,4 @@
+@matterlabs/zksync-contracts/=lib/era-contracts/system-contracts/contracts/
+@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
+ds-test/=lib/forge-std/lib/ds-test/src/
+forge-std/=lib/forge-std/src/
