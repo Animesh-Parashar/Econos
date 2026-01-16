@@ -1,126 +1,244 @@
-# 🪙 Econos Protocol
+# ECONOS: Autonomous Agent to Agent Compute Marketplace Powered by Native x402 Settlement
 
-### The Trust-Minimized Economic Layer for Agentic Commerce on Cronos
+Econos enables autonomous settlement between AI or Web2 compute providers and on chain agent clients, using x402 intents, native escrow based payments, gasless contract interaction, and a universal Node.js Sidecar that wraps any HTTP API into a blockchain settled Worker Agent.
 
-Econos is a decentralized **Machine-to-Machine (M2M)** marketplace that transforms AI agents from isolated tools into rational economic actors. Built on **Cronos zkEVM**, Econos leverages the **x402 (Payment Required)** protocol to enable seamless, sub-cent micro-settlements for agentic services without human intervention.
+Econos targets the x402 Agentic Finance or Payment Track by demonstrating:
 
----
+* Programmatic settlement pipelines
+* Agent triggered escrow release
+* Conditional payment state machines
+* Multi step agent workflows (deposit, compute, submit, settle or refund)
+* Gas abstraction via Paymaster
+* Zero onboarding friction for Web2 compute providers
 
-## 🏛️ System Architecture
+There is no need for Workers to hold tokens, manage wallets, pay gas, or understand blockchain.
 
-Econos sits between the **Application Layer** and the **Settlement Layer**, providing a standardized "Handshake" for autonomous services.
+## 1. High Level Overview
 
-### 1. High-Level Workflow
+Econos is a two sided compute marketplace driven by autonomous agents.
+
+Side A: Master Agents (Demand)
+
+* Represent clients or upstream AIs that require compute (LLM summaries, image generation, video processing)
+
+Side B: Worker Agents (Supply)
+
+* Represent Web2 compute APIs running behind Docker
+
+Settlement occurs on a Native Escrow Contract deployed on Cronos zkEVM Testnet. Workers submit results gaslessly using a Paymaster Contract and receive native zkTCRO on success.
+
+## 2. Key Features
+
+| Feature                       | Description                                                          |
+| ----------------------------- | -------------------------------------------------------------------- |
+| x402 Intent Settlement        | Autonomous instruction, escrow, compute, settlement lifecycle        |
+| Native zkTCRO Escrow          | No ERC20, no allowances, no permits, no token standards              |
+| Gasless Worker Submission     | Paymaster covers gas, Worker never needs zkTCRO                      |
+| Node.js Sidecar for Web2 APIs | Bridges chain events to HTTP API to chain submit                     |
+| Universal Workloads           | Image generation, text summarization, video processing, ML inference |
+| Refund Logic                  | Expired or unclaimed tasks refund automatically                      |
+| Minimal Web2 Onboarding       | Developers run a container, zero blockchain knowledge                |
+| Secure Assignment             | Tasks specify a single Worker, prevents front running                |
+| x402 Financial Cohesion       | Multi step conditional state transitions mapped to payment outcomes  |
+
+## 3. Architecture
+
+Econos consists of five components:
+
+1. Master Agent
+2. Native Escrow Contract
+3. Paymaster Contract
+4. Worker Agent (Web2 API)
+5. Sidecar Runtime (Node.js)
+
+### Architecture Diagram (Mermaid)
+
+```mermaid
+flowchart TD
+    A["External Client or Master Agent"] -->|"depositTask(taskId, worker, duration, zkTCRO)"| B["NativeEscrow Contract"]
+    B -->|"TaskCreated Event"| C["Sidecar Runtime - Node.js"]
+    C -->|"HTTP Request"| D["Worker API - Web2"]
+    D -->|"Result Data"| C
+    C -->|"submitWork(taskId, resultHash) with Paymaster Params"| B
+    B -->|"Native Payout (zkTCRO)"| W["Worker Wallet"]
+    B -->|"TaskCompleted Event"| A
+    B <-->|"Refund on Timeout"| A
+
+```
+
+## 4. Workflow (Lifecycle State Machine)
+
+Econos implements a multi step autonomous settlement pipeline that maps directly to x402 flows.
+
+### Sequence Diagram 
 
 ```mermaid
 sequenceDiagram
-    participant M as Master Agent (Consumer)
-    participant R as Econos Registry (On-Chain)
-    participant W as Worker Agent (Service)
-    participant C as Cronos zkEVM
-    participant MCP as CDC Market Data MCP
+    participant M as Master Agent
+    participant E as NativeEscrow
+    participant S as Sidecar
+    participant W as Worker API
+    participant P as Paymaster
 
-    M->>R: Find "Risk-Scoring" Service
-    R-->>M: Return Worker URL & Reputation
-    M->>W: POST /inference {data}
-    W->>MCP: Check current market volatility
-    W-->>M: HTTP 402: Payment Required (Price: 0.05 CRO)
-    M->>C: Execute x402 Facilitator Settlement
-    C-->>M: Tx Receipt (0x...)
-    M->>W: RETRY /inference + X-Payment: {TxHash}
-    W->>C: Verify Payment Finality
-    W-->>M: HTTP 200: {Signed Result, EIP-191 Signature}
-    M->>M: Verify Signature & Execute DeFi Trade
+    M->>E: depositTask(taskId, worker, duration, value=zkTCRO)
+    E-->>S: TaskCreated event
 
+    S->>E: read task state
+    S->>W: HTTP POST /process(taskId, params)
+    W-->>S: result payload (hash or IPFS ref)
+
+    S->>P: paymaster request for gas sponsorship
+    P-->>E: gas paid to bootloader
+
+    S->>E: submitWork(taskId, resultHash)
+    E-->>S: TaskCompleted event
+    E-->>M: completion notification
+    E-->>Worker Wallet: transfer zkTCRO
 ```
 
-### 2. Core Components
+## 5. Smart Contracts
 
-| Component | Responsibility | Stack |
-| --- | --- | --- |
-| **The Registry** | Permissionless directory of agent capabilities and prices. | Solidity (Cronos zkEVM) |
-| **x402 Middleware** | Handles the 402 Challenge/Response lifecycle. | Node.js / @x402/express |
-| **Verification Engine** | Ensures Worker data is signed and valid. | EIP-191 / Viem |
-| **Dynamic Pricer** | Adjusts service fees based on real-time market data. | Crypto.com Market Data MCP |
+### 5.1 Native Escrow Contract
 
----
+Responsibilities:
 
-## 🚀 Key Features
+* Accept zkTCRO deposits for tasks
+* Assign tasks to Worker
+* Track deadlines
+* Pay Worker on completion
+* Refund Master on timeout
 
-### 🛠️ Permissionless Service Discovery
+Properties:
 
-Agents register their `Manifest` (JSON schema of capabilities) directly on the Cronos zkEVM Registry contract. This allows any Master Agent to discover and bill new services in real-time without manual API integrations.
+* No ERC20 dependencies
+* No allowances
+* No permits
+* Native value transfers only
 
-### ⚡ Trust-Minimized x402 Handshake
+### 5.2 Paymaster Contract
 
-Instead of credit cards or pre-paid credits, Econos uses the native **HTTP 402** status code.
+Responsibilities:
 
-1. **Challenge:** Server returns 402 with payment requirements.
-2. **Settlement:** Client authorizes a one-time micro-payment via the x402 Facilitator.
-3. **Fulfillment:** Server returns the data only after on-chain verification.
+* Cover Worker gas
+* Validate Worker identity and intent
+* Protect against arbitrary submissions
 
-### 🛡️ Signed Inference (Data Integrity)
+Properties:
 
-To prevent "Inference Spoofing," every response from a Worker Agent is cryptographically signed. If a worker provides garbage data to claim a payment, their **on-chain reputation** is slashed, and they can be evicted from the Registry.
+* Workers never need gas
+* No token balances required
 
----
+## 6. Sidecar Runtime (Node.js)
 
-## 💻 Quick Start (Developer Implementation)
+The Sidecar is the critical integration layer.
 
-### 1. Convert any API to an x402 Econos Worker
+### Responsibilities:
 
-Wrap your AI inference endpoint with our middleware to start earning CRO per request.
+* Listen for TaskCreated events
+* Validate task assignment and state
+* Execute HTTP compute call against Worker API
+* Submit results to blockchain via Paymaster
+* Never expose blockchain complexity to Web2 devs
 
-```javascript
-import { EconosMiddleware } from '@Econos/protocol-sdk';
+### Developer UX:
 
-app.post('/v1/risk-analysis', EconosMiddleware({
-    price: 0.05, 
-    asset: 'CRO',
-    recipient: '0xYourWallet...'
-}), async (req, res) => {
-    const result = await runAIModel(req.body);
-    // Middleware automatically signs the response
-    res.json(result); 
-});
-
-```
-
-### 2. Autonomous Master Agent (The Consumer)
-
-Use the **Crypto.com AI Agent SDK** to orchestrate payments.
-
-```python
-from Econos_sdk import EconosClient
-
-client = EconosClient(wallet_key=os.getenv("AGENT_KEY"))
-
-# 1. Discover worker via Cronos Registry
-worker_url = client.registry.find_best_service("risk-analysis")
-
-# 2. Call and auto-settle 402 challenge
-response = client.call_with_settlement(worker_url, payload={"token": "VVS"})
-
-print(f"Verified Result: {response.data}")
+1. Developer builds HTTP API returning result JSON
+2. Developer registers URL in Marketplace UI
+3. Developer runs:
 
 ```
+docker run \
+  -e API_URL="https://myapi.com" \
+  -e PRIVATE_KEY="<worker_key>" \
+  econos-sidecar
+```
 
----
+4. Earnings accumulate in Worker wallet
 
-## 📈 Why Cronos zkEVM?
+### Supported Workloads
 
-* **Sub-Cent Gas Fees:** M2M commerce requires payments of $0.01 or less. Cronos zkEVM's 10x gas reduction makes this economically viable.
-* **Instant Finality:** Agents cannot wait 10 minutes for a bank transfer. ZK-Rollup finality ensures the M2M handshake happens in seconds.
-* **Ecosystem Synergy:** Direct integration with **VVS Finance**, **Moonlander**, and the **Crypto.com MCP** provides immediate utility for agentic traders.
+Sidecar supports any HTTP accessible workload:
 
----
+* Image generation
+* Text summarization
+* Video processing
+* Audio transcription
+* Vector embeddings
+* Arbitrary custom ML inference
 
-## 📜 Roadmap
+## 7. x402 Track Positioning
 
-* [ ] **Phase 1:** Registry Deployment on Cronos Testnet.
-* [ ] **Phase 2:** Integration with x402 Facilitator for gasless signatures.
-* [ ] **Phase 3:** Reputation-based slashing for "Proof of Quality Inference."
-* [ ] **Phase 4:** Mainnet Launch on Cronos zkEVM.
+| x402 Concept            | Econos Mapping                                       |
+| ----------------------- | ---------------------------------------------------- |
+| Agent Intents           | Master triggers on chain task creation               |
+| Autonomous Execution    | Sidecar executes compute automatically               |
+| Programmatic Settlement | Native Escrow resolves payout state                  |
+| Multi Step Transactions | Deposit, Compute, Submit, Settle or Refund           |
+| Conditional Release     | Settlement requires valid submission before deadline |
+| Gasless Agent Actions   | Paymaster covers worker gas                          |
+| Real Asset Movement     | Native zkTCRO moves to Worker wallet                 |
 
----
+This is not just agents calling contracts. It is autonomous economic state transitions with real settlement.
+
+## 8. Security and Economics
+
+Worker Safety:
+
+* Pre funded escrow
+* No gas exposure
+* Guaranteed payout on success
+
+Master Safety:
+
+* Deadlines prevent infinite waiting
+* Refund path protects capital
+
+Griefing Resistance:
+
+* No pay without escrow
+* No rug after compute since funds are locked
+* No token volatility issues at MVP stage
+
+## 9. Ecosystem Value
+
+Econos introduces:
+
+1. New monetization channel for Web2 compute providers
+2. x402 native financial workflows as reference architecture
+3. Zero friction onboarding for AI workloads
+4. Real asset movement between autonomous agents
+
+Future integrations with Crypto.com ecosystem could include:
+
+* Funding escrow from Crypto.com wallets
+* Using Crypto.com MCP data as input feeds
+* Agent triggered DeFi actions on Cronos dApps
+
+## 10. Judge Focused Summary
+
+Econos demonstrates:
+
+* Autonomous agent triggered compute execution
+* Gasless x402 enabled settlement
+* Refundable escrow state machines
+* Real zkTCRO movement between agents
+* Minimal onboarding for Web2 developers
+
+One sentence summary:
+Econos turns any HTTP API into an x402 native, gasless, self settling compute Worker that gets paid in native zkTCRO after completing tasks.
+
+## 11. Future Work
+
+Production roadmap includes:
+
+* Stablecoin settlement
+* Market based bidding and auctions
+* Dispute resolution and arbitration
+* Reputation and staking
+* IPFS or Arweave result storage
+* Cross chain compute routing
+
+## 12. Conclusion
+
+Econos is a strong candidate for the x402 Agentic Finance or Payment Track because it demonstrates autonomous, verifiable work execution tied to conditional, gasless, native asset transfer via escrow. That is the essence of agentic finance.
 
