@@ -37,7 +37,7 @@ contract AgentPaymaster is IPaymaster {
         // If you change the Escrow function signature, update this!
         require(_transaction.data.length >= 4, "Paymaster: Data too short");
         bytes4 selector = bytes4(_transaction.data[0:4]);
-        require(selector == 0xcfdf46c7, "Paymaster: Only submitWork allowed");
+        require(selector == 0x828efc0c, "Paymaster: Only submitWork allowed");
 
         // 3. LOGIC: Decode TaskID
         require(_transaction.data.length >= 36, "Paymaster: Data too short for taskId");

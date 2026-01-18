@@ -1,35 +1,26 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
+import "forge-std/console.sol";
 import "../src/WorkerRegistry.sol";
 import "../src/NativeEscrow.sol";
 import "../src/AgentPaymaster.sol";
 
 contract DeployMarketplace is Script {
     function run() external {
-        // Load Private Key from env
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerKey);
 
-        // 1. Deploy Registry
-        WorkerRegistry registry = new WorkerRegistry();
-        console.log("WorkerRegistry:", address(registry));
+        // 🔒 HARD-CODED ESCROW ADDRESS
+        address escrow = 0x5c28841B6d3F6A100F054Bd45813073E397D27ec;
 
-        // 2. Deploy Escrow (Linked to Registry)
-        NativeEscrow escrow = new NativeEscrow(address(registry));
-        console.log("NativeEscrow:", address(escrow));
+        // (Optional) sanity check: ensure it's a contract
+        require(escrow.code.length > 0, "Escrow address is not a contract");
 
-        // 3. Link Registry to Escrow (So Escrow can slash reputation)
-        registry.setEscrowContract(address(escrow));
-
-        // 4. Deploy Paymaster (Linked to Escrow)
-        AgentPaymaster paymaster = new AgentPaymaster(address(escrow));
-        console.log("AgentPaymaster:", address(paymaster));
-
-        // 5. Fund Paymaster (Gas Tank) - Send 1 zkTCRO
-        // (bool success, ) = address(paymaster).call{value: 1 ether}("");
-        // require(success, "Failed to fund paymaster");
+        // Deploy Paymaster linked to escrow
+        AgentPaymaster paymaster = new AgentPaymaster(escrow);
+        console.log("AgentPaymaster deployed at:", address(paymaster));
 
         vm.stopBroadcast();
     }
