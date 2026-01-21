@@ -20,6 +20,7 @@ import { PipelinePlanner } from '../task-analyzer/pipelinePlanner';
 import { PipelineExecutor } from '../pipeline/pipelineExecutor';
 import { ResultAggregator } from '../pipeline/resultAggregator';
 import { logger, logTaskEvent } from '../utils/logger';
+import axios from 'axios';
 
 /**
  * Configuration for the Master Agent Orchestrator
@@ -193,9 +194,27 @@ export class MasterAgentOrchestrator {
         if (plan.isSingleAgent) {
             // Single agent execution - use existing submitTask flow
             const step = plan.steps[0];
+            
+            // Convert task description to service-specific parameters
+            let serviceParams = input;
+            if (Object.keys(input).length === 0) {
+                // Map task description to service parameters
+                if (step.serviceType === 'researcher' || step.serviceType === 'market-research') {
+                    serviceParams = { topic: request };
+                } else if (step.serviceType === 'image-generation') {
+                    serviceParams = { prompt: request };
+                } else if (step.serviceType === 'summary-generation') {
+                    serviceParams = { content: request, style: 'concise' };
+                } else if (step.serviceType === 'writer') {
+                    serviceParams = { topic: request };
+                } else {
+                    serviceParams = { input: request };
+                }
+            }
+            
             const taskInput: CreateTaskInput = {
                 taskType: step.serviceType,
-                inputParameters: input,
+                inputParameters: serviceParams,
                 durationSeconds: 3600,
                 budgetEther: (Number(plan.estimatedBudgetWei) / 1e18).toFixed(6),
             };
@@ -314,6 +333,39 @@ export class MasterAgentOrchestrator {
                 authorization.payload.nonce,
                 authorization.payload.expiresAt
             );
+
+            // Send authorization to worker (critical for immediate execution)
+            logger.info('Registering authorization with worker', { 
+                taskId: task.taskId,
+                worker: worker.address 
+            });
+            
+            try {
+                const workerEndpoint = worker.endpoint || `http://localhost:3001`;
+                // Axios is already imported at the top of the file
+                await axios.post(`${workerEndpoint}/authorize/${task.taskId}`, {
+                    message: {
+                        taskId: task.taskId,
+                        worker: worker.address,
+                        expiresAt: authorization.payload.expiresAt,
+                        nonce: authorization.payload.nonce
+                    },
+                    signature: authorization.signature,
+                    payload: {
+                        serviceName: input.taskType,
+                        params: input.inputParameters
+                    }
+                });
+                
+                logger.info('Authorization registered with worker', { taskId: task.taskId });
+                
+            } catch (error: any) {
+                logger.warn('Failed to register authorization with worker', {
+                    taskId: task.taskId,
+                    error: error.message
+                });
+                // Don't fail the task - worker might retry via polling if supported
+            }
 
             logTaskEvent(task.taskId, 'submitted', 'info', {
                 worker: worker.address,

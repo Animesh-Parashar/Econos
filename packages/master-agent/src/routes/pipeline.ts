@@ -143,7 +143,7 @@ router.post('/execute-pipeline', pipelinePaymentGuard, async (req: Request, res:
  * Get current status of pipeline execution
  * Public endpoint - no payment required
  */
-router.get('/pipeline/:taskId/status', (req: Request, res: Response) => {
+router.get('/:taskId/status', (req: Request, res: Response) => {
     const taskId = Array.isArray(req.params.taskId) ? req.params.taskId[0] : req.params.taskId;
 
     const status = getPipelineStatus(taskId);
@@ -160,7 +160,7 @@ router.get('/pipeline/:taskId/status', (req: Request, res: Response) => {
  * Get final results of completed pipeline
  * Public endpoint - no payment required
  */
-router.get('/pipeline/:taskId/result', (req: Request, res: Response) => {
+router.get('/:taskId/result', (req: Request, res: Response) => {
     const taskId = Array.isArray(req.params.taskId) ? req.params.taskId[0] : req.params.taskId;
 
     const result = getPipelineResult(taskId);

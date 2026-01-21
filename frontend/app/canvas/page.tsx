@@ -25,8 +25,10 @@ import { PipelineControls } from '@/components/canvas/pipeline-controls'
 import { PaymentModal } from '@/components/canvas/payment-modal'
 import { TaskInputDialog } from '@/components/canvas/task-input-dialog'
 import { ResultsModal } from '@/components/canvas/results-modal'
+import { ExecutionLog } from '@/components/canvas/execution-log'
+import { ChatPanel } from '@/components/canvas/chat-panel'
 import type { Agent, PipelineNodeData } from '@/types/agent'
-import { requestPipelineExecution, executePipelineWithPayment, type PaymentDetails, waitForPipelineCompletion } from '@/lib/api'
+import { requestPipelineExecution, executePipelineWithPayment, type PaymentDetails, waitForPipelineCompletion, waitForAICompletion } from '@/lib/api'
 
 // Register custom node types
 const nodeTypes = {
@@ -48,6 +50,9 @@ function CanvasContent() {
     const [nodes, setNodes, onNodesChange] = useNodesState([])
     const [edges, setEdges, onEdgesChange] = useEdgesState([])
     const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
+    
+    // Tab state: 'canvas' or 'chat'
+    const [activeTab, setActiveTab] = useState<'canvas' | 'chat'>('canvas')
 
     // Wallet integration
     const { address, isConnected } = useAccount()
@@ -65,12 +70,14 @@ function CanvasContent() {
         completedSteps: Set<string>
         failedSteps: Set<string>
         isPolling: boolean
+        isAIChat: boolean // Track if this is AI chat execution
     }>({
         taskId: null,
         currentStep: null,
         completedSteps: new Set(),
         failedSteps: new Set(),
-        isPolling: false
+        isPolling: false,
+        isAIChat: false
     })
 
     // Payment modal state
@@ -322,27 +329,71 @@ function CanvasContent() {
 
         try {
             setIsExecuting(true)
-            console.log('✅ Payment confirmed, retrying with L402 header...')
             
-            // Step 4: Retry with L402 authorization
-            const result = await executePipelineWithPayment(nodes, edges, txHash, taskDescription)
+            // Check if this is AI chat mode (task description but no nodes)
+            const isAIChatMode = taskDescription && nodes.length === 0
             
-            toast.success('Pipeline execution started!')
-            setPaymentModal({ open: false })
-            
-            // Start status polling for visual feedback
-            setExecutionState({
-                taskId: result.taskId,
-                currentStep: 1,
-                completedSteps: new Set(),
-                failedSteps: new Set(),
-                isPolling: true
-            });
-            
-            // Poll for completion
-            const finalResult = await waitForPipelineCompletion(result.taskId)
-            setExecutionResult(finalResult)
-            toast.success('Pipeline completed successfully!')
+            if (isAIChatMode) {
+                console.log('🤖 AI Chat Mode: Executing with payment', txHash)
+                const response = await fetch(
+                    `${process.env.NEXT_PUBLIC_MASTER_AGENT_URL || 'http://localhost:4000'}/ai/execute`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            taskDescription,
+                            paymentTxHash: txHash
+                        })
+                    }
+                )
+
+                if (!response.ok) {
+                    const errorText = await response.text()
+                    throw new Error(`AI execution failed: ${errorText}`)
+                }
+                
+                const data = await response.json()
+                console.log('✅ AI workflow started:', data.taskId)
+                
+                toast.success('AI workflow started!')
+                setPaymentModal({ open: false })
+                setExecutionState({
+                    taskId: data.taskId,
+                    currentStep: null,
+                    completedSteps: new Set(),
+                    failedSteps: new Set(),
+                    isPolling: true,
+                    isAIChat: true
+                })
+            } else {
+                console.log('✅ Visual Builder: Payment confirmed, executing pipeline...')
+                
+                // Step 4: Retry with L402 authorization
+                const result = await executePipelineWithPayment(nodes, edges, txHash, taskDescription)
+                
+                toast.success('Pipeline execution started!')
+                setPaymentModal({ open: false })
+                
+                // Start status polling for visual feedback
+                setExecutionState({
+                    taskId: result.taskId,
+                    currentStep: 1,
+                    completedSteps: new Set(),
+                    failedSteps: new Set(),
+                    isPolling: true,
+                    isAIChat: false
+                })
+                
+                // Poll for completion based on mode
+                let finalResult;
+                if (isAIChatMode) {
+                   finalResult = await waitForAICompletion(result.taskId)
+                } else {
+                   finalResult = await waitForPipelineCompletion(result.taskId)
+                }
+                setExecutionResult(finalResult)
+                toast.success('Pipeline completed successfully!')
+            }
 
         } catch (error: any) {
             console.error('Execution after payment error:', error)
@@ -350,7 +401,7 @@ function CanvasContent() {
         } finally {
             setIsExecuting(false)
         }
-    }, [txHash, nodes, edges])
+    }, [txHash, nodes, edges, taskDescription, executePipelineWithPayment, waitForPipelineCompletion])
 
     // Trigger execution after successful payment
     useEffect(() => {
@@ -361,12 +412,44 @@ function CanvasContent() {
     }, [isTxSuccess, txHash, handlePaymentSuccess])
 
     return (
-        <div className="flex h-[calc(100vh-5rem)] bg-zinc-950 mt-20">
-            {/* Sidebar */}
-            <AgentSidebar onDragStart={onDragStart} />
+        <div className="h-screen flex flex-col bg-zinc-950">
+            <Navbar />
+            
+            {/* Tab Toggle - visible below navbar */}
+            <div className="flex justify-center py-3 bg-zinc-950 border-b border-zinc-800/50" style={{ marginTop: '80px' }}>
+                <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg p-1">
+                    <button
+                        onClick={() => setActiveTab('canvas')}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                            activeTab === 'canvas'
+                                ? 'bg-zinc-800 text-zinc-100'
+                                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+                        }`}
+                    >
+                        Visual Builder
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('chat')}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                            activeTab === 'chat'
+                                ? 'bg-zinc-800 text-zinc-100'
+                                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+                        }`}
+                    >
+                        AI Chat
+                    </button>
+                </div>
+            </div>
 
-            {/* Canvas */}
-            <div className="flex-1 relative" ref={reactFlowWrapper}>
+            <div className="flex-1 flex overflow-hidden">
+                {/* Sidebar - only in canvas mode */}
+                {activeTab === 'canvas' && <AgentSidebar onDragStart={onDragStart} />}
+
+                {/* Main Content */}
+                <div className="flex-1 flex flex-col relative">
+                    {/* Content Area */}
+                    {activeTab === 'canvas' ? (
+                <div className="flex-1 relative" ref={reactFlowWrapper}>
                 <ReactFlow
                     nodes={nodes}
                     edges={edges}
@@ -442,6 +525,25 @@ function CanvasContent() {
                     </div>
                 )}
             </div>
+                ) : (
+                    /* Chat Mode */
+                    <ChatPanel 
+                        onRequestPayment={(cost, planId, taskDesc) => {
+                            setTaskDescription(taskDesc)
+                            setPaymentModal({
+                                open: true,
+                                paymentDetails: {
+                                    amount: cost,
+                                    currency: 'TCRO',
+                                    recipient: '0x561009A39f2BC5a975251685Ae8C7F98Fac063C7',
+                                    chainId: 338
+                                }
+                            })
+                        }}
+                    />
+                )}
+                </div>
+            </div>
 
             {/* Task Input Dialog */}
             <TaskInputDialog
@@ -470,6 +572,12 @@ function CanvasContent() {
                     txHash={txHash}
                 />
             )}
+
+            {/* Execution Log Window */}
+            <ExecutionLog 
+                taskId={executionState.taskId}
+                isExecuting={isExecuting}
+            />
 
             {/* Results Modal */}
             {executionResult && (

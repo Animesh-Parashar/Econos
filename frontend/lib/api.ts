@@ -83,7 +83,7 @@ export async function requestPipelineExecution(
 ): Promise<PaymentRequiredResponse | PipelineExecutionResult> {
     const workflow = serializeWorkflow(nodes, edges)
 
-    const response = await fetch(`${MASTER_AGENT_URL}/execute-pipeline`, {
+    const response = await fetch(`${MASTER_AGENT_URL}/pipeline/execute-pipeline`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -125,7 +125,8 @@ export async function executePipelineWithPayment(
 ): Promise<PipelineExecutionResult> {
     const workflow = serializeWorkflow(nodes, edges)
 
-    const response = await fetch(`${MASTER_AGENT_URL}/execute-pipeline`, {
+    // Fix: The backend mounts this at /pipeline/execute-pipeline
+    const response = await fetch(`${MASTER_AGENT_URL}/pipeline/execute-pipeline`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -186,6 +187,11 @@ export function parsePaymentRequired(response: PaymentRequiredResponse): Payment
 /**
  * Helper: Poll for completion with timeout
  */
+// ... (existing code)
+
+/**
+ * Poll for pipeline completion
+ */
 export async function waitForPipelineCompletion(
     taskId: string,
     timeoutMs: number = 300000 // 5 minutes
@@ -204,9 +210,53 @@ export async function waitForPipelineCompletion(
             throw new Error('Pipeline execution failed')
         }
 
-        // Wait before next poll
         await new Promise(resolve => setTimeout(resolve, pollInterval))
     }
 
     throw new Error('Pipeline execution timeout')
+}
+
+/**
+ * Get AI Task Verification
+ */
+export async function getAIStatus(taskId: string): Promise<any> {
+    const response = await fetch(`${MASTER_AGENT_URL}/ai/status/${taskId}`)
+    
+    if (!response.ok) {
+        throw new Error('Failed to fetch AI task status')
+    }
+
+    return response.json()
+}
+
+/**
+ * Poll for AI task completion
+ */
+export async function waitForAICompletion(
+    taskId: string,
+    timeoutMs: number = 300000
+): Promise<PipelineResultResponse> {
+    const startTime = Date.now()
+    const pollInterval = 2000
+
+    while (Date.now() - startTime < timeoutMs) {
+        const status = await getAIStatus(taskId)
+
+        if (status.status === 'COMPLETED' || status.status === 'completed') {
+            return {
+                taskId: status.taskId,
+                success: true,
+                results: [status.result],
+                aggregatedOutput: status.result
+            }
+        }
+
+        if (status.status === 'FAILED' || status.status === 'failed') {
+            throw new Error(status.error || 'AI task execution failed')
+        }
+
+        await new Promise(resolve => setTimeout(resolve, pollInterval))
+    }
+
+    throw new Error('AI task execution timeout')
 }

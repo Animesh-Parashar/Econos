@@ -3,9 +3,10 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { ethers } from 'ethers';
 import { runAgentWorkflow } from './services/workflow';
-import { getMasterWallet } from './config/cronos'; // Ensure this path matches your project structure
+import { getMasterWallet } from './config/cronos';
 import pipelineRoutes from './routes/pipeline';
-import { eventStreamer } from './services/eventStreamer';
+import aiRoutes, { setOrchestrator } from './routes/ai';
+import { MasterAgentOrchestrator } from './services/masterAgentOrchestrator';
 
 const app = express();
 app.use(cors());
@@ -24,6 +25,16 @@ const PRICES: Record<string, string> = {
     'researcher': '0.05',
     'default': '0.01'
 };
+
+// Initialize AI Orchestrator for chat mode
+const orchestrator = new MasterAgentOrchestrator({
+    knownWorkers: [
+        { address: WORKER_ADDRESS, endpoint: WORKER_ENDPOINT }
+    ],
+    autoStartMonitor: false // Don't need lifecycle monitoring for AI chat
+});
+setOrchestrator(orchestrator);
+console.log('🤖 AI Orchestrator initialized');
 
 /**
  * MIDDLEWARE: L402 Payment Guard
@@ -137,25 +148,12 @@ app.post('/hire', paymentGuard, async (req: Request, res: Response) => {
     }
 });
 
-// START SERVER
-const PORT = Number(process.env.PORT) || 4000;
-
-// Import the AI-powered orchestrator
-import { MasterAgentOrchestrator } from './services/masterAgentOrchestrator';
-
-// Initialize orchestrator with known workers
-const orchestrator = new MasterAgentOrchestrator({
-    knownWorkers: [
-        { address: WORKER_ADDRESS, endpoint: WORKER_ENDPOINT }
-    ]
-});
-
 /**
- * AI-POWERED ENDPOINT: Analyze and Execute Task
- * Uses Gemini to analyze prompt and select best agent(s) from marketplace
- * NOW USES CONTRACT-BASED WORKER DISCOVERY
+ * ==========================
+ * 🔌 SUPABASE TEST ENDPOINT
+ * ==========================
  */
-app.post('/analyze', async (req: Request, res: Response) => {
+app.get('/test-supabase', async (req: Request, res: Response) => {
     try {
         const { prompt, params } = req.body;
 
@@ -591,48 +589,52 @@ app.get('/workers/contract', async (req: Request, res: Response) => {
     }
 });
 
-/**
- * SSE Endpoint for Flow Visualization
- * Streams real-time events to connected clients
- */
-app.get('/events', (req: Request, res: Response) => {
-    // Set SSE headers
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.flushHeaders();
-
-    console.log('📡 SSE client connected');
-
-    // Send initial connection event
-    res.write(`data: ${JSON.stringify({ type: 'connected', message: '🔌 Connected to Master Agent event stream', timestamp: Date.now() })}\n\n`);
-
-    // Subscribe to events
-    const unsubscribe = eventStreamer.addClient((event) => {
-        res.write(`data: ${JSON.stringify(event)}\n\n`);
-    });
-
-    // Heartbeat every 30 seconds to keep connection alive
-    const heartbeat = setInterval(() => {
-        res.write(`: heartbeat\n\n`);
-    }, 30000);
-
-    // Clean up on disconnect
-    req.on('close', () => {
-        console.log('📡 SSE client disconnected');
-        unsubscribe();
-        clearInterval(heartbeat);
-    });
+// Health check endpoint
+app.get('/health', (req: Request, res: Response) => {
+    res.json({ status: 'ok', service: 'master-agent', timestamp: new Date().toISOString() });
 });
 
-// Mount Pipeline Routes
-app.use('/', pipelineRoutes);
+// Main execute endpoint with L402 payment
+app.post('/execute', paymentGuard, async (req: Request, res: Response) => {
+    const { taskType, params } = req.body;
+    
+    try {
+        const price = PRICES[taskType] || PRICES['default'];
+        const result = await runAgentWorkflow(
+            taskType,
+            params,
+            price, // budget in ETH
+            WORKER_ENDPOINT,
+            WORKER_ADDRESS
+        );
+        
+        res.json({
+            success: true,
+            taskId: result.taskId,
+            output: result.output
+        });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
+// Register pipeline routes
+app.use('/pipeline', pipelineRoutes);
+
+// Register AI routes for chat mode
+app.use('/ai', aiRoutes);
+
+// Start server
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-    console.log(`🤖 Master Agent Gateway running on port ${PORT}`);
-    console.log(`💳 Accepting Payments at: ${MASTER_WALLET}`);
-    console.log(`🧠 AI Orchestrator ready with Gemini`);
-    console.log(`🔗 Pipeline Routes: /execute-pipeline, /pipeline/:id/status, /pipeline/:id/result`);
-    console.log(`--------------------------------------------------`);
+    console.log(`🚀 Master Agent running on port ${PORT}`);
+    console.log(`📋 Endpoints:`);
+    console.log(`   - POST /execute (with L402 payment)`);
+    console.log(`   - GET  /health`);
+    console.log(`   - POST /pipeline/execute-pipeline`);
+    console.log(`   - GET  /pipeline/:id/status`);
+    console.log(`   - POST /ai/analyze (AI chat mode)`);
+    console.log(`   - POST /ai/execute (AI chat execution)`);
+    console.log(`   - GET  /ai/capabilities`);
+    console.log(`\n💡 Master Wallet: ${MASTER_WALLET}`);
 });
