@@ -55,14 +55,10 @@ export class EventListener {
      * Start listening to events
      */
     start(): void {
-        if (this.isListening) {
-            logger.warn('Event listener already started');
-            return;
-        }
-
-        this.setupEventHandlers();
-        this.isListening = true;
-        logger.info('Event listener started');
+        // DISABLED: RPC endpoint doesn't support eth_newFilter
+        // Task monitoring will use polling instead
+        logger.warn('Event listening disabled - RPC does not support eth_newFilter. Using polling for task monitoring.');
+        return;
     }
 
     /**

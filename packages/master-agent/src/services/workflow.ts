@@ -55,6 +55,11 @@ export async function runAgentWorkflow(
             signature: signedAuth.signature,
             payload: { serviceName: taskType, params }
         });
+        
+        // Wait 2 seconds to ensure worker has stored authorization before on-chain event
+        console.log(`   ⏱️  Waiting for authorization propagation...`);
+        await new Promise(r => setTimeout(r, 2000));
+        
     } catch (error: any) {
         // Detailed Axios Error Logging
         if (error.code === 'ECONNREFUSED') {
@@ -92,16 +97,18 @@ export async function runAgentWorkflow(
 
 async function pollAndRelay(taskId: string, workerUrl: string, escrow: any) {
     console.log(`   👂 Polling ${taskId}...`);
-    const TIMEOUT = 60000;
+    const TIMEOUT = 300000; // 5 minutes for complex tasks
     const start = Date.now();
+    let attempts = 0;
 
     while (Date.now() - start < TIMEOUT) {
+        attempts++;
         try {
             const proofRes = await axios.get(`${workerUrl}/proof/${taskId}`);
             if (proofRes.data.success) {
                 const proof = proofRes.data.proof;
                 
-                console.log(`   🚀 Relaying ${taskId}...`);
+                console.log(`   🚀 Relaying ${taskId} (after ${attempts} attempts)...`);
                 const tx = await escrow.submitWorkRelayed(
                     taskId, proof.resultHash, proof.signature
                 );
@@ -115,8 +122,10 @@ async function pollAndRelay(taskId: string, workerUrl: string, escrow: any) {
                 // Return data so runAgentWorkflow can grab it
                 return finalData;
             }
-        } catch (e) { /* wait */ }
-        await new Promise(r => setTimeout(r, 2000));
+        } catch (e) { 
+            // Still waiting for worker to complete
+        }
+        await new Promise(r => setTimeout(r, 3000)); // Poll every 3 seconds
     }
-    throw new Error(`Timeout waiting for worker output`);
+    throw new Error(`Timeout waiting for worker output after ${attempts} attempts`);
 }

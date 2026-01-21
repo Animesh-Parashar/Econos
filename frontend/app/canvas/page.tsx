@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactFlow, {
     Background,
     Controls,
@@ -14,12 +14,19 @@ import ReactFlow, {
     type ReactFlowInstance,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
+import { useAccount, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi'
+import { parseEther } from 'viem'
+import { toast } from 'sonner'
 
 import { Navbar } from '@/components/ui/navbar'
 import { AgentSidebar } from '@/components/canvas/agent-sidebar'
 import { AgentNode } from '@/components/canvas/agent-node'
 import { PipelineControls } from '@/components/canvas/pipeline-controls'
+import { PaymentModal } from '@/components/canvas/payment-modal'
+import { TaskInputDialog } from '@/components/canvas/task-input-dialog'
+import { ResultsModal } from '@/components/canvas/results-modal'
 import type { Agent, PipelineNodeData } from '@/types/agent'
+import { requestPipelineExecution, executePipelineWithPayment, type PaymentDetails, waitForPipelineCompletion } from '@/lib/api'
 
 // Register custom node types
 const nodeTypes = {
@@ -28,9 +35,12 @@ const nodeTypes = {
 
 // Custom edge styles
 const defaultEdgeOptions = {
-    style: { strokeWidth: 1.5, stroke: '#3b82f6' },
     type: 'smoothstep',
-    animated: false,
+    animated: true,
+    style: {
+        stroke: '#52525b',
+        strokeWidth: 2,
+    },
 }
 
 function CanvasContent() {
@@ -38,6 +48,41 @@ function CanvasContent() {
     const [nodes, setNodes, onNodesChange] = useNodesState([])
     const [edges, setEdges, onEdgesChange] = useEdgesState([])
     const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
+
+    // Wallet integration
+    const { address, isConnected } = useAccount()
+    const { sendTransaction, data: txHash, isPending, error: txError } = useSendTransaction()
+    const { isLoading: isConfirming, isSuccess: isTxSuccess } = useWaitForTransactionReceipt({ hash: txHash })
+
+    // Task input dialog state
+    const [taskInputOpen, setTaskInputOpen] = useState(false)
+    const [taskDescription, setTaskDescription] = useState('')
+
+    // Execution state for visual feedback
+    const [executionState, setExecutionState] = useState<{
+        taskId: string | null
+        currentStep: number | null
+        completedSteps: Set<string>
+        failedSteps: Set<string>
+        isPolling: boolean
+    }>({
+        taskId: null,
+        currentStep: null,
+        completedSteps: new Set(),
+        failedSteps: new Set(),
+        isPolling: false
+    })
+
+    // Payment modal state
+    const [paymentModal, setPaymentModal] = useState<{
+        open: boolean
+        paymentDetails?: PaymentDetails
+    }>({ open: false })
+
+    // Execution state
+    const [isExecuting, setIsExecuting] = useState(false)
+    const [executionResult, setExecutionResult] = useState<any>(null)
+    const processedTxRef = useRef<string | null>(null)
 
     // Calculate total pipeline amount
     const pipelineStats = useMemo(() => {
@@ -57,6 +102,82 @@ function CanvasContent() {
         (params: Connection) => setEdges((eds) => addEdge(params, eds)),
         [setEdges]
     )
+
+    // Update node visual states based on execution progress
+    useEffect(() => {
+        if (!executionState.taskId) return;
+
+        setNodes((nds) => nds.map((node) => ({
+            ...node,
+            data: {
+                ...node.data,
+                executionState: 
+                    executionState.completedSteps.has(node.data.agent.name) ? 'completed' :
+                    executionState.failedSteps.has(node.data.agent.name) ? 'failed' :
+                    'pending'
+            }
+        })));
+    }, [executionState.completedSteps, executionState.failedSteps, setNodes]);
+
+    // Poll pipeline status for real-time visual feedback
+    useEffect(() => {
+        if (!executionState.taskId || !executionState.isPolling) return;
+
+        const pollStatus = async () => {
+            try {
+                const response = await fetch(
+                    `${process.env.NEXT_PUBLIC_MASTER_AGENT_URL || 'http://localhost:4000'}/pipeline/${executionState.taskId}/status`
+                );
+                
+                if (!response.ok) {
+                    console.error('Status polling failed:', response.status);
+                    return;
+                }
+                
+                const data = await response.json();
+
+                if (data.status) {
+                    // Extract completed and failed steps
+                    const completed = new Set<string>();
+                    const failed = new Set<string>();
+                    
+                    if (data.steps) {
+                        data.steps.forEach((step: any) => {
+                            if (step.status === 'completed') {
+                                completed.add(step.agent);
+                            } else if (step.status === 'failed') {
+                                failed.add(step.agent);
+                            }
+                        });
+                    }
+
+                    // Update execution state
+                    setExecutionState(prev => ({
+                        ...prev,
+                        currentStep: data.currentStep || prev.currentStep,
+                        completedSteps: completed,
+                        failedSteps: failed,
+                        isPolling: data.status === 'running'
+                    }));
+
+                    // Stop polling and update UI when pipeline completes or fails
+                    if (data.status === 'completed' || data.status === 'failed') {
+                        setExecutionState(prev => ({ ...prev, isPolling: false }));
+                        setIsExecuting(false);
+                    }
+                }
+            } catch (error) {
+                console.error('Status polling error:', error);
+            }
+        };
+
+        // Start polling immediately
+        pollStatus();
+        
+        const interval = setInterval(pollStatus, 3000); // Poll every 3 seconds
+
+        return () => clearInterval(interval);
+    }, [executionState.taskId, executionState.isPolling]);
 
     // Handle drag start from sidebar
     const onDragStart = (event: React.DragEvent, agent: Agent) => {
@@ -109,12 +230,17 @@ function CanvasContent() {
     const handleClear = useCallback(() => {
         setNodes([])
         setEdges([])
+        setExecutionResult(null)
     }, [setNodes, setEdges])
 
-    // Execute pipeline (placeholder - could integrate with master agent)
-    const handleExecute = useCallback(() => {
+    // L402 Protocol Flow: Execute pipeline with payment
+    const handleExecute = useCallback(async () => {
+        console.log('🔵 handleExecute called')
+        console.log('📊 Nodes:', nodes.length)
+        console.log('🔗 Edges:', edges.length)
+        
         if (nodes.length === 0) {
-            alert('Add some agents to the canvas first!')
+            toast.error('Add some agents to the canvas first!')
             return
         }
 
@@ -123,37 +249,116 @@ function CanvasContent() {
         const rootNodes = nodes.filter((n: Node) => !targetIds.has(n.id))
 
         if (rootNodes.length === 0 && nodes.length > 0) {
-            alert('Pipeline has a cycle - please ensure there is a clear starting point.')
+            toast.error('Pipeline has a cycle - please ensure there is a clear starting point.')
             return
         }
 
-        // Build execution order (topological sort)
-        const order: string[] = []
-        const visited = new Set<string>()
-
-        const visit = (nodeId: string) => {
-            if (visited.has(nodeId)) return
-            visited.add(nodeId)
-            order.push(nodeId)
-
-            // Find connected nodes
-            const nextEdges = edges.filter((e: Edge) => e.source === nodeId)
-            nextEdges.forEach((e: Edge) => visit(e.target))
-        }
-
-        rootNodes.forEach((n: Node) => visit(n.id))
-
-        // Log execution plan
-        const executionPlan = order.map((id: string) => {
-            const node = nodes.find((n: Node) => n.id === id)
-            return node?.data.agent.name
-        })
-
-        console.log('Pipeline Execution Order:', executionPlan)
-        alert(`Pipeline will execute: ${executionPlan.join(' → ')}`)
-
-        // TODO: Actually execute via master agent API
+        // Show task input dialog
+        setTaskInputOpen(true)
     }, [nodes, edges])
+
+    // Handle task description submission from dialog
+    const handleTaskSubmit = useCallback(async (description: string) => {
+        setTaskDescription(description)
+        setTaskInputOpen(false)
+
+        try {
+            setIsExecuting(true)
+            setExecutionResult(null)
+
+            // Step 1: Initial request (expect 402 Payment Required)
+            console.log('🚀 Requesting pipeline execution...')
+            console.log('📋 Task:', description)
+            console.log('📡 API URL:', process.env.NEXT_PUBLIC_MASTER_AGENT_URL || 'http://localhost:4000')
+            const response = await requestPipelineExecution(nodes, edges, description)
+            console.log('📥 Response:', response)
+
+            if (response.status === 402) {
+                // Step 2: Show payment modal
+                console.log('💰 Payment required:', response.paymentDetails)
+                setPaymentModal({
+                    open: true,
+                    paymentDetails: response.paymentDetails,
+                })
+                setIsExecuting(false)
+                return
+            }
+
+            // If already paid (unlikely but possible)
+            toast.success('Pipeline execution started!')
+            const result = await waitForPipelineCompletion(response.taskId)
+            setExecutionResult(result)
+            toast.success('Pipeline completed successfully!')
+
+        } catch (error: any) {
+            console.error('❌ Pipeline execution error:', error)
+            toast.error(error.message || 'Failed to execute pipeline')
+        } finally {
+            setIsExecuting(false)
+        }
+    }, [nodes, edges])
+
+    // Handle payment transaction
+    const handlePayment = useCallback(async () => {
+        if (!paymentModal.paymentDetails) return
+
+        try {
+            const { amount, recipient } = paymentModal.paymentDetails
+            
+            // Send transaction
+            sendTransaction({
+                to: recipient as `0x${string}`,
+                value: parseEther(amount),
+            })
+        } catch (error: any) {
+            console.error('Payment error:', error)
+            toast.error(error.message || 'Payment failed')
+        }
+    }, [paymentModal.paymentDetails, sendTransaction])
+
+    // After payment confirmation, retry with L402 header
+    const handlePaymentSuccess = useCallback(async () => {
+        if (!txHash) return
+
+        try {
+            setIsExecuting(true)
+            console.log('✅ Payment confirmed, retrying with L402 header...')
+            
+            // Step 4: Retry with L402 authorization
+            const result = await executePipelineWithPayment(nodes, edges, txHash, taskDescription)
+            
+            toast.success('Pipeline execution started!')
+            setPaymentModal({ open: false })
+            
+            // Start status polling for visual feedback
+            setExecutionState({
+                taskId: result.taskId,
+                currentStep: 1,
+                completedSteps: new Set(),
+                failedSteps: new Set(),
+                isPolling: true
+            });
+            
+            // Poll for completion
+            const finalResult = await waitForPipelineCompletion(result.taskId)
+            setExecutionResult(finalResult)
+            toast.success('Pipeline completed successfully!')
+
+        } catch (error: any) {
+            console.error('Execution after payment error:', error)
+            toast.error(error.message || 'Execution failed after payment')
+        } finally {
+            setIsExecuting(false)
+        }
+    }, [txHash, nodes, edges])
+
+    // Trigger execution after successful payment
+    useEffect(() => {
+        if (isTxSuccess && txHash && processedTxRef.current !== txHash) {
+            processedTxRef.current = txHash
+            handlePaymentSuccess()
+        }
+    }, [isTxSuccess, txHash, handlePaymentSuccess])
 
     return (
         <div className="flex h-[calc(100vh-5rem)] bg-zinc-950 mt-20">
@@ -180,7 +385,7 @@ function CanvasContent() {
                     <Controls
                         className="!bg-zinc-900 !border-zinc-800 !rounded-md [&>button]:!bg-zinc-800 [&>button]:!border-zinc-700 [&>button]:!text-zinc-400 [&>button:hover]:!bg-zinc-700 [&>button]:!w-6 [&>button]:!h-6"
                     />
-                    <PipelineControls onClear={handleClear} onExecute={handleExecute} />
+                    <PipelineControls onClear={handleClear} onExecute={handleExecute} isExecuting={isExecuting} />
                 </ReactFlow>
 
                 {/* Empty state */}
@@ -209,7 +414,80 @@ function CanvasContent() {
                         </div>
                     </div>
                 )}
+
+                {/* Execution Result Display */}
+                {executionResult && (
+                    <div className="absolute top-4 right-4 z-20 max-w-md
+                                    bg-zinc-900/95 backdrop-blur-sm border border-green-500/30
+                                    rounded-lg p-4 shadow-lg">
+                        <div className="flex items-start gap-3">
+                            <div className="flex-1">
+                                <h3 className="text-green-400 font-semibold text-sm mb-2">✓ Pipeline Completed</h3>
+                                <div className="text-xs text-zinc-300 space-y-1">
+                                    <p>Task ID: <span className="font-mono text-zinc-400">{executionResult.taskId?.slice(0, 16)}...</span></p>
+                                    {executionResult.results && (
+                                        <div className="mt-2 p-2 bg-zinc-800/50 rounded text-xs max-h-32 overflow-y-auto">
+                                            <pre className="whitespace-pre-wrap">{JSON.stringify(executionResult.aggregatedOutput || executionResult.results, null, 2)}</pre>
+                                        </div>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={() => setExecutionResult(null)}
+                                    className="mt-2 text-xs text-zinc-500 hover:text-zinc-400"
+                                >
+                                    Dismiss
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
+
+            {/* Task Input Dialog */}
+            <TaskInputDialog
+                open={taskInputOpen}
+                onOpenChange={setTaskInputOpen}
+                onSubmit={handleTaskSubmit}
+                agentCount={nodes.length}
+            />
+
+            {/* L402 Payment Modal */}
+            {paymentModal.paymentDetails && (
+                <PaymentModal
+                    open={paymentModal.open}
+                    onOpenChange={(open) => setPaymentModal({ ...paymentModal, open })}
+                    amount={paymentModal.paymentDetails.amount}
+                    currency={paymentModal.paymentDetails.currency}
+                    recipient={paymentModal.paymentDetails.recipient}
+                    chainId={paymentModal.paymentDetails.chainId}
+                    onPayment={handlePayment}
+                    isConnected={isConnected}
+                    onConnect={() => {}} // Handled by navbar
+                    isPending={isPending}
+                    isConfirming={isConfirming}
+                    isSuccess={isTxSuccess}
+                    error={txError}
+                    txHash={txHash}
+                />
+            )}
+
+            {/* Results Modal */}
+            {executionResult && (
+                <ResultsModal
+                    open={!!executionResult}
+                    onOpenChange={(open) => !open && setExecutionResult(null)}
+                    taskId={executionResult.taskId || executionState.taskId || ''}
+                    steps={executionResult.steps?.map((s: any, i: number) => ({
+                        order: i + 1,
+                        agent: s.agent || `Step ${i + 1}`,
+                        status: s.error ? 'failed' : 'completed',
+                        result: s.result,
+                        error: s.error
+                    })) || []}
+                    aggregatedOutput={executionResult.aggregatedOutput || executionResult.results}
+                    status={executionResult.success ? 'completed' : 'failed'}
+                />
+            )}
         </div>
     )
 }

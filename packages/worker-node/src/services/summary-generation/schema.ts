@@ -28,6 +28,7 @@ export const SummaryGenerationOutputSchema = z.object({
     metadata: z.object({
         style: z.string(),
         generatedAt: z.number(),
+        isMock: z.boolean().optional(),
     }),
 });
 

@@ -4,6 +4,7 @@ import cors from 'cors';
 import { ethers } from 'ethers';
 import { runAgentWorkflow } from './services/workflow';
 import { getMasterWallet } from './config/cronos'; // Ensure this path matches your project structure
+import pipelineRoutes from './routes/pipeline';
 
 const app = express();
 app.use(cors());
@@ -589,9 +590,13 @@ app.get('/workers/contract', async (req: Request, res: Response) => {
     }
 });
 
+// Mount Pipeline Routes
+app.use('/', pipelineRoutes);
+
 app.listen(PORT, () => {
     console.log(`🤖 Master Agent Gateway running on port ${PORT}`);
     console.log(`💳 Accepting Payments at: ${MASTER_WALLET}`);
     console.log(`🧠 AI Orchestrator ready with Gemini`);
+    console.log(`🔗 Pipeline Routes: /execute-pipeline, /pipeline/:id/status, /pipeline/:id/result`);
     console.log(`--------------------------------------------------`);
 });

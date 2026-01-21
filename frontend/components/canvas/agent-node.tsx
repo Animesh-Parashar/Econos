@@ -14,8 +14,16 @@ const categoryIcon: Record<string, React.ComponentType<{ className?: string }>> 
     security: Shield,
 }
 
-function AgentNodeComponent({ id, data, selected }: NodeProps<PipelineNodeData>) {
-    const { agent } = data
+type ExecutionState = 'pending' | 'executing' | 'completed' | 'failed'
+
+interface AgentNodeComponentProps extends NodeProps<PipelineNodeData> {
+    data: PipelineNodeData & {
+        executionState?: ExecutionState
+    }
+}
+
+function AgentNodeComponent({ id, data, selected }: AgentNodeComponentProps) {
+    const { agent, executionState = 'pending' } = data
     const { deleteElements } = useReactFlow()
     const Icon = categoryIcon[agent.category || ''] || Activity
 
@@ -24,13 +32,30 @@ function AgentNodeComponent({ id, data, selected }: NodeProps<PipelineNodeData>)
         deleteElements({ nodes: [{ id }] })
     }
 
+    // Border styles based on execution state (prominent animations)
+    const getBorderStyle = () => {
+        switch (executionState) {
+            case 'executing':
+                return 'border-blue-500 shadow-xl shadow-blue-500/50 pulsate-node'
+            case 'completed':
+                return 'border-green-500 shadow-lg shadow-green-500/40'
+            case 'failed':
+                return 'border-red-500 shadow-lg shadow-red-500/40'
+            default:
+                return selected ? 'border-blue-500 shadow-sm shadow-blue-500/20' : 'border-zinc-700 hover:border-zinc-600'
+        }
+    }
+
     return (
         <div
             className={`
-        group relative px-2.5 py-1.5 min-w-[120px] max-w-[140px] rounded-md 
-        bg-zinc-900 border transition-all duration-200
-        ${selected ? 'border-blue-500 shadow-sm shadow-blue-500/20' : 'border-zinc-700 hover:border-zinc-600'}
-      `}
+            group relative px-2.5 py-1.5 min-w-[120px] max-w-[140px] rounded-md 
+            bg-zinc-900 border transition-all duration-300
+            ${getBorderStyle()}
+          `}
+            style={executionState === 'executing' ? {
+                animation: 'pulsate-strong 2s ease-in-out infinite'
+            } : undefined}
         >
             {/* Remove Button - appears on hover with smooth transition */}
             <button

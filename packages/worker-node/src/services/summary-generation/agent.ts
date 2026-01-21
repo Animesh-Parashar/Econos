@@ -89,9 +89,38 @@ Return your response as valid JSON:
             };
 
             return SummaryGenerationOutputSchema.parse(output);
-        } catch (error) {
-            logger.error('SummaryGenerationAgent error', { error });
-            throw error;
+        } catch (error: any) {
+            logger.warn('⚠️ SummaryGenerationAgent API failed (Rate Limit?), switching to MOCK data.', { error: error.message });
+            
+            // MOCK fallback response
+            const mockSummary = validatedInput.text.length > 200 
+                ? validatedInput.text.substring(0, 200) + '...[MOCK SUMMARY - API rate limit exceeded]'
+                : validatedInput.text + ' [MOCK SUMMARY - API rate limit exceeded]';
+            
+            const summaryWordCount = countWords(mockSummary);
+            
+            const mockOutput: SummaryGenerationOutput = {
+                summary: mockSummary,
+                keyPoints: [
+                    'Key insight from the provided text (MOCK)',
+                    'Important finding extracted (MOCK)',
+                    'Notable conclusion reached (MOCK)'
+                ],
+                topics: ['Analysis', 'Research', 'Summary'],
+                sentiment: 'neutral',
+                wordCount: {
+                    original: originalWordCount,
+                    summary: summaryWordCount,
+                    reduction: calculateReduction(originalWordCount, summaryWordCount),
+                },
+                metadata: {
+                    style: validatedInput.style || 'concise',
+                    generatedAt: Math.floor(Date.now() / 1000),
+                    isMock: true,
+                },
+            };
+            
+            return SummaryGenerationOutputSchema.parse(mockOutput);
         }
     }
 }

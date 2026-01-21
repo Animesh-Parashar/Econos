@@ -74,6 +74,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.9",
+    "@types/connect": "^3.4.38",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",

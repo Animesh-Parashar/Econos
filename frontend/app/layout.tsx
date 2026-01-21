@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/next"
 import { LenisProvider } from "@/components/providers/lenis-provider"
 import { Web3Provider } from "@/components/providers/web3-provider"
 import "./globals.css"
+import "./animations.css"
 
 const manrope = Manrope({
   subsets: ["latin"],
