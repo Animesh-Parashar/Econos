@@ -172,8 +172,9 @@ app.post('/inference/:serviceId', async (req: Request, res: Response) => {
     }
 });
 
-app.get('/result/:taskId', (req, res) => {
-    const { taskId } = req.params;
+app.get('/result/:taskId', (req: Request, res: Response) => {
+    const { taskId: rawTaskId } = req.params;
+    const taskId = Array.isArray(rawTaskId) ? rawTaskId[0] : rawTaskId;
 
     if (resultStore.has(taskId)) {
         const data = resultStore.get(taskId);
@@ -187,8 +188,9 @@ app.get('/result/:taskId', (req, res) => {
     return res.status(404).json({ error: "Result not found or expired" });
 });
 
-app.get('/proof/:taskId', (req, res) => {
-    const { taskId } = req.params;
+app.get('/proof/:taskId', (req: Request, res: Response) => {
+    const { taskId: rawTaskId } = req.params;
+    const taskId = Array.isArray(rawTaskId) ? rawTaskId[0] : rawTaskId;
 
     if (resultStore.has(taskId)) {
         const entry = resultStore.get(taskId);

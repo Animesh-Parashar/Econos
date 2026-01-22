@@ -5,7 +5,7 @@ services:
   - type: web
     name: econos-frontend
     env: static
-    buildCommand: cd frontend && npm install && npm run build
+    buildCommand: cd frontend && npm install --production=false && npm run build
     staticPublishPath: ./frontend/.next
     routes:
       - type: rewrite
@@ -39,7 +39,7 @@ services:
     env: node
     region: oregon
     plan: free
-    buildCommand: cd packages/master-agent && npm install && npm run build
+    buildCommand: cd packages/master-agent && npm install --production=false && npm run build
     startCommand: cd packages/master-agent && node dist/server.js
     healthCheckPath: /health
     envVars:
@@ -86,7 +86,7 @@ services:
     env: node
     region: oregon
     plan: free
-    buildCommand: cd packages/worker-node && npm install && npm run build
+    buildCommand: cd packages/worker-node && npm install --production=false && npm run build
     startCommand: cd packages/worker-node && node dist/index.js
     healthCheckPath: /health
     envVars:
