@@ -18,9 +18,17 @@ services:
         sync: false  # Set manually in Render dashboard
       - key: NEXT_PUBLIC_WORKER_NODE_URL
         sync: false  # Set manually in Render dashboard
-      - key: NEXT_PUBLIC_SUPABASE_URL
+      - key: NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
         sync: false
-      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+      - key: NEXT_PUBLIC_WORKER_REGISTRY_ADDRESS
+        value: 0x49E4177eA6F21Cc5673bDc0b09507C5648fd53a3
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_DEFAULT_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
 
   # ============================================
@@ -39,20 +47,36 @@ services:
         value: production
       - key: PORT
         value: 4000
-      - key: GEMINI_API_KEY
-        sync: false  # Set manually in Render dashboard
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_KEY
-        sync: false
-      - key: WORKER_REGISTRY_ADDRESS
-        sync: false
-      - key: NATIVE_ESCROW_ADDRESS
-        sync: false
-      - key: CRONOS_RPC_URL
-        value: https://evm-t3.cronos.org/
       - key: MASTER_PRIVATE_KEY
         sync: false  # CRITICAL: Keep this secret!
+      - key: MASTER_ADDRESS
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY_2
+        sync: false
+      - key: GEMINI_API_KEY_3
+        sync: false
+      - key: GEMINI_API_KEY_4
+        sync: false
+      - key: GEMINI_API_KEY_5
+        sync: false
+      - key: CRONOS_RPC_URL
+        value: https://338.rpc.thirdweb.com/
+      - key: CRONOS_CHAIN_ID
+        value: "338"
+      - key: WORKER_REGISTRY_ADDRESS
+        value: 0x49E4177eA6F21Cc5673bDc0b09507C5648fd53a3
+      - key: NATIVE_ESCROW_ADDRESS
+        value: 0x3ffE8af5A45E9B0056634Ac4649Cd7FfAD4E6b17
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_DEFAULT_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
 
   # ============================================
   # Worker Node - Node.js Web Service
@@ -70,13 +94,27 @@ services:
         value: production
       - key: PORT
         value: 5000
-      - key: GEMINI_API_KEY
-        sync: false  # Set manually in Render dashboard
+      - key: CRONOS_RPC_URL
+        value: https://338.rpc.thirdweb.com/
+      - key: CRONOS_CHAIN_ID
+        value: "338"
+      - key: BLOCK_CONFIRMATIONS
+        value: "2"
       - key: WORKER_PRIVATE_KEY
         sync: false  # CRITICAL: Keep this secret!
-      - key: CRONOS_RPC_URL
-        value: https://evm-t3.cronos.org/
-      - key: NATIVE_ESCROW_ADDRESS
+      - key: MASTER_PRIVATE_KEY
+        sync: false  # Needed if worker node also acts as a master in some flows
+      - key: WORKER_ADDRESS
+        value: 0xB0BeC85Fd4B334048f6B1C4733ea51BfAe6c3Dd0
+      - key: CRYPTO_COM_API_KEY
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: REGISTRY_ADDRESS
+        value: 0x49E4177eA6F21Cc5673bDc0b09507C5648fd53a3
+      - key: ESCROW_ADDRESS
+        value: 0x3ffE8af5A45E9B0056634Ac4649Cd7FfAD4E6b17
+      - key: PAYMASTER_ADDRESS
+        value: 0x18Fc27F4e6fe7D5865Aa24fd5Fe580EaCcEd5AbD
       - key: ENABLE_COORDINATOR
         value: "true"
