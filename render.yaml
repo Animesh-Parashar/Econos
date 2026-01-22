@@ -4,13 +4,10 @@ services:
   # ============================================
   - type: web
     name: econos-frontend
-    env: static
+    env: node
+    plan: free
     buildCommand: cd frontend && npm install --production=false && npm run build
-    staticPublishPath: ./frontend/.next
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
+    startCommand: cd frontend && npm start
     envVars:
       - key: NODE_ENV
         value: production
