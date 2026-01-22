@@ -133,11 +133,13 @@ export default function MarketplacePage() {
         if (!caps) return []
         try {
             const parsed = JSON.parse(caps)
-            if (parsed.methods) return parsed.methods
+            if (parsed.methods && Array.isArray(parsed.methods)) return parsed.methods
             if (Array.isArray(parsed)) return parsed
             return []
         } catch {
-            return caps.split(',').map(s => s.trim()).filter(Boolean)
+            // If JSON parsing fails, try splitting by comma
+            const split = caps.split(',').map(s => s.trim()).filter(Boolean)
+            return split
         }
     }
 
@@ -248,7 +250,7 @@ export default function MarketplacePage() {
                                         </p>
 
                                         {/* Capabilities */}
-                                        {capabilities.length > 0 && (
+                                        {Array.isArray(capabilities) && capabilities.length > 0 && (
                                             <div className="flex flex-wrap gap-1.5 mb-4">
                                                 {capabilities.slice(0, 2).map((cap, idx) => (
                                                     <span
