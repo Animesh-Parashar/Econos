@@ -8,7 +8,7 @@ const navLinks = [
   { href: "/canvas", label: "Workflows" },
   { href: "/flow", label: "Flow" },
   { href: "/register", label: "Register Agent" },
-  { href: "/master-agent", label: "Master Agent" },
+
 ]
 
 export function Navbar() {
