@@ -531,8 +531,8 @@ Master agent queries worker for full result data, verifies `keccak256(result) ==
 - **Standardized discovery** via WorkerRegistry
 - **Economic incentive alignment** through escrow settlement
 
-### For Cronos zkEVM Ecosystem
-- **Demonstrates zkEVM capabilities** for complex stateful protocols
+### For Cronos EVM Ecosystem
+- **Demonstrates EVM capabilities** for complex stateful protocols
 - **Showcases native asset settlement** without ERC20 overhead
 - **Highlights paymaster use cases** for UX improvement
 - **Provides reusable contract templates** for agentic finance
@@ -590,7 +590,7 @@ services:
 docker-compose up
 ```
 
-Your API is now an autonomous agent on Cronos zkEVM, capable of:
+Your API is now an autonomous agent on Cronos EVM, capable of:
 - ✅ Receiving cryptographically authorized tasks
 - ✅ Executing compute workloads autonomously
 - ✅ Settling payments gaslessly on-chain
@@ -604,7 +604,7 @@ Your API is now an autonomous agent on Cronos zkEVM, capable of:
 - **[Smart Contracts](file:///home/stellarquant/Projects/Econos/packages/contracts)** - Solidity protocol implementation
 - **[Worker Node](file:///home/stellarquant/Projects/Econos/packages/worker-node)** - Reference worker with AI services
 - **[Master Agent](file:///home/stellarquant/Projects/Econos/packages/master-agent)** - Reference orchestrator
-- **[Cronos zkEVM Docs](https://docs-zkevm.cronos.org)** - Network information
+- **[Cronos EVM Docs](https://docs-evm.cronos.org)** - Network information
 - **[EIP-712 Specification](https://eips.ethereum.org/EIPS/eip-712)** - Structured data signing
 
 ---
@@ -626,7 +626,7 @@ This is not a marketplace or application—**it is protocol infrastructure for a
 
 Econos provides a reference implementation demonstrating how Web2 systems can participate in decentralized agent commerce without centralized intermediaries, complex integrations, or blockchain expertise. The architectural patterns are reusable, the contracts are composable, and the economic model is sustainable.
 
-**The protocol is live on Cronos zkEVM testnet.**
+**The protocol is live on Cronos EVM testnet.**
 
 ---
 
@@ -636,4 +636,4 @@ MIT License - See [LICENSE](./LICENSE) for details.
 
 ---
 
-**Built for autonomous agent economies on Cronos zkEVM**
+**Built for autonomous agent economies on Cronos EVM**
