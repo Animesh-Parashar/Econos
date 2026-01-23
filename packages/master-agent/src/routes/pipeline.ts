@@ -62,13 +62,38 @@ async function pipelinePaymentGuard(req: Request, res: Response, next: NextFunct
         // Verify Payment
         const txHash = String(authHeader).split(' ')[1];
         console.log(`💰 Verifying pipeline payment: ${txHash}...`);
+        console.log(`📍 RPC URL: ${RPC_URL}`);
+        console.log(`📍 Master Wallet: ${MASTER_WALLET}`);
 
         const provider = new ethers.JsonRpcProvider(RPC_URL);
-        const tx = await provider.getTransaction(txHash);
+
+        // Retry logic: Wait for transaction to appear on-chain (up to 30 seconds)
+        let tx = null;
+        const maxRetries = 10;
+        const retryDelayMs = 3000; // 3 second delay between retries
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            tx = await provider.getTransaction(txHash);
+            if (tx) {
+                console.log(`✅ Transaction found on attempt ${attempt}`);
+                break;
+            }
+            console.log(`⏳ Transaction not found (attempt ${attempt}/${maxRetries}), waiting ${retryDelayMs}ms...`);
+            if (attempt < maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+            }
+        }
 
         if (!tx) {
-            throw new Error("Transaction not found on chain");
+            throw new Error(`Transaction not found on chain after ${maxRetries} attempts (${(maxRetries * retryDelayMs) / 1000}s). TxHash: ${txHash}`);
         }
+
+        console.log(`📋 Transaction details: to=${tx.to}, value=${tx.value?.toString()}`);
+
+        if (!MASTER_WALLET) {
+            throw new Error("MASTER_WALLET not configured on server");
+        }
+
         if (tx.to?.toLowerCase() !== MASTER_WALLET.toLowerCase()) {
             throw new Error(`Invalid Recipient: Paid to ${tx.to}, expected ${MASTER_WALLET}`);
         }
@@ -85,6 +110,7 @@ async function pipelinePaymentGuard(req: Request, res: Response, next: NextFunct
 
     } catch (error: any) {
         console.error("❌ Payment Verification Failed:", error.message);
+        console.error("❌ Full error:", error);
         res.status(403).json({ error: "Invalid Payment", details: error.message });
         return;
     }
@@ -125,9 +151,8 @@ router.post('/execute-pipeline', pipelinePaymentGuard, async (req: Request, res:
             success: true,
             taskId: plan.taskId,
             status: "running",
-            message: `Pipeline execution started with ${plan.steps.length} agents${
-                taskDescription ? `: ${taskDescription}` : ''
-            }`,
+            message: `Pipeline execution started with ${plan.steps.length} agents${taskDescription ? `: ${taskDescription}` : ''
+                }`,
             totalSteps: plan.steps.length,
             estimatedCost: plan.totalCost,
         });
