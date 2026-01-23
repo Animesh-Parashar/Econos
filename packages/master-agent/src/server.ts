@@ -73,14 +73,39 @@ async function paymentGuard(req: Request, res: Response, next: NextFunction) {
         // 3. Verify Payment Logic
         const txHash = String(authHeader).split(' ')[1]; // Extract Hash
         console.log(`💰 Verifying payment: ${txHash}...`);
+        console.log(`📍 RPC URL: ${RPC_URL}`);
+        console.log(`📍 Master Wallet: ${MASTER_WALLET}`);
 
         const provider = new ethers.JsonRpcProvider(RPC_URL);
-        const tx = await provider.getTransaction(txHash);
+
+        // Retry logic: Wait for transaction to appear on-chain (up to 30 seconds)
+        let tx = null;
+        const maxRetries = 10;
+        const retryDelayMs = 3000; // 3 second delay between retries
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            tx = await provider.getTransaction(txHash);
+            if (tx) {
+                console.log(`✅ Transaction found on attempt ${attempt}`);
+                break;
+            }
+            console.log(`⏳ Transaction not found (attempt ${attempt}/${maxRetries}), waiting ${retryDelayMs}ms...`);
+            if (attempt < maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+            }
+        }
 
         // Validation Checks
         if (!tx) {
-            throw new Error("Transaction not found on chain");
+            throw new Error(`Transaction not found on chain after ${maxRetries} attempts (${(maxRetries * retryDelayMs) / 1000}s). TxHash: ${txHash}`);
         }
+
+        console.log(`📋 Transaction details: to=${tx.to}, value=${tx.value?.toString()}`);
+
+        if (!MASTER_WALLET) {
+            throw new Error("MASTER_WALLET not configured on server");
+        }
+
         if (tx.to?.toLowerCase() !== MASTER_WALLET.toLowerCase()) {
             throw new Error(`Invalid Recipient: Paid to ${tx.to}, expected ${MASTER_WALLET}`);
         }
@@ -101,6 +126,7 @@ async function paymentGuard(req: Request, res: Response, next: NextFunction) {
 
     } catch (error: any) {
         console.error("❌ Payment Verification Failed:", error.message);
+        console.error("❌ Full error:", error);
         res.status(403).json({ error: "Invalid Payment", details: error.message });
         return;
     }
@@ -632,7 +658,7 @@ app.get('/events', (req: Request, res: Response) => {
 // Main execute endpoint with L402 payment
 app.post('/execute', paymentGuard, async (req: Request, res: Response) => {
     const { taskType, params } = req.body;
-    
+
     try {
         const price = PRICES[taskType] || PRICES['default'];
         const result = await runAgentWorkflow(
@@ -642,7 +668,7 @@ app.post('/execute', paymentGuard, async (req: Request, res: Response) => {
             WORKER_ENDPOINT,
             WORKER_ADDRESS
         );
-        
+
         res.json({
             success: true,
             taskId: result.taskId,
